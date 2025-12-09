@@ -1,0 +1,33 @@
+docling-app/
+├── app/
+│   ├── __init__.py
+│   ├── main.py                 # Application entry point (diperbarui)
+│   ├── middleware.py           # Custom middleware
+│   ├── routers/
+│   │   ├── __init__.py
+│   │   └── document.py         # Router untuk endpoints dokumen
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── base_service.py     # Base service class
+│   │   ├── file_service.py     # Service untuk file handling
+│   │   └── conversion_service.py # Service untuk konversi dokumen
+│   └── auth/
+│       ├── __init__.py
+│       └── utils.py            # Auth utilities
+├── config/
+│   ├── __init__.py             # Public API exports
+│   ├── base.py                 # Base settings
+│   ├── dev.py                  # Dev config
+│   ├── test.py                 # Test config
+│   ├── prod.py                 # Prod config
+│   ├── loader.py               # Settings loader
+│   ├── context.py              # Request context management
+│   ├── logger.py               # Logger setup
+│   └── dependencies.py         # Reusable dependencies
+├── env/
+│   ├── dev.env                 # Development environment
+│   ├── test.env                # Test environment
+│   └── prod.env.example        # Production template
+├── .env                        # Environment selector
+├── requirements.txt
+└── run.sh                      # Startup script
