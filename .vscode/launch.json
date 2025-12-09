@@ -1,0 +1,72 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        
+        {
+            "name": "Python Debugger: FastAPI Development",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "app.main:app",
+                "--reload",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "1877",
+                "--log-level",
+                "debug"
+            ],
+            "jinja": true,
+            "env": {
+                "DOCLING_ENV": "dev"
+            },
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Python Debugger: FastAPI Test",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "app.main:app",
+                "--reload"
+            ],
+            "env": {
+                "DOCLING_ENV": "test"
+            },
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Python Debugger: FastAPI Production",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "app.main:app",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "1877"
+            ],
+            "jinja": true,
+            "env": {
+                "DOCLING_ENV": "prod"
+            },
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "DOCLING_ENV": "dev"
+            }
+        }
+    ]
+}

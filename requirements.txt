@@ -1,0 +1,14 @@
+fastapi
+python-multipart
+uvicorn
+python-dotenv
+pydantic
+pydantic-settings
+httpx
+pytest
+pytest-asyncio
+aiofiles
+python-magic
+docling
+docling-core
+tiktoken
