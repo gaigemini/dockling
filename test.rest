@@ -1,18 +1,22 @@
 @clientToken = Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZW1weSIsImlkIjoiMDFKUlc0U0hFRFEzTlRITlAwWkRKNktXMzIiLCJyb2xlIjpbIkFETUlOIl0sImF1dGgiOiJDTElFTlQiLCJjb2RlIjoidG1wIiwiZXhwIjoxNzUxNDMwNjA3fQ.bFAZZgfvSqHsybFTjhKqGLAqmNkyrQvtyF4d2ChD6jI
 @token = {{clientToken}}
+@server_host=https://docling.gai.co.id/
+@local_host=http://localhost:1877/
+@host={{server_host}}
+
 
 ### Get Root
-GET http://localhost:1877/
+GET {{host}}
 Accept: application/json
 
 
 ### Get Health Check
-GET http://localhost:1877/health
+GET {{host}}health
 Accept: application/json
 
 
 ### POST Convert Document with OCR disabled (Default) /home/skyfy/Downloads/UUD1945.pdf /home/skyfy/Downloads/UU Nomor 1 Tahun 2023.pdf
-POST http://localhost:1877/api/v1/convert
+POST {{host}}api/v1/convert
 authorization: {{token}}
 Content-Type: multipart/form-data; boundary=_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
 
@@ -32,7 +36,7 @@ markdown
 
 
 ### POST Convert and Chunk Document with OCR enabled
-POST http://localhost:1877/api/v1/convert_n_chunk
+POST {{host}}api/v1/convert_n_chunk
 authorization: {{token}}
 Content-Type: multipart/form-data; boundary=Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
 
