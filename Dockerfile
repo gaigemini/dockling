@@ -15,6 +15,12 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     libmagic1 \
     libgomp1 \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
     wget \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -48,11 +54,11 @@ RUN useradd -m -u 1000 docling && \
 USER docling
 
 # Expose port
-EXPOSE 1877
+EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:1877/health || exit 1
+    CMD curl -f http://localhost:8000/health || exit 1
 
 # Run the application
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
