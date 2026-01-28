@@ -11,6 +11,8 @@ async def get_current_user(
     request: Request = None
 ):
     """Validates token and sets user context"""
+    logger = get_request_logger("auth")
+    
     # Bypass auth in test environment if configured
     if settings.DISABLE_AUTH:
         user = {"id": 999, "username": "docling-user", "is_admin": True}
@@ -28,7 +30,6 @@ async def get_current_user(
             raise Exception("Invalid token")
             
     except Exception as e:
-        logger = get_request_logger("auth")
         logger.error(f"Auth failed: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -117,8 +117,7 @@ class ConversionService(BaseService):
                     data={
                         "content": result["content"],
                         "processing_time": result["processing_time"],
-                        "metadata": result.get("metadata", {}),
-                        "document": result.get("document")
+                        "metadata": result.get("metadata", {})
                     }
                 )
             else:

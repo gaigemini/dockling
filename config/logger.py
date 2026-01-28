@@ -88,3 +88,23 @@ def get_request_logger(name: str, extra: Optional[Dict[str, Any]] = None):
     """
     logger = logging.getLogger(f"app.{name}")
     return logging.LoggerAdapter(logger, extra or {})
+
+def get_service_logger(service_name: str) -> logging.LoggerAdapter:
+    """
+    Get a service logger with context for non-request operations
+    
+    Args:
+        service_name: Name of the service
+        
+    Returns:
+        LoggerAdapter with appropriate context
+    """
+    logger = logging.getLogger(f"app.services.{service_name}")
+    return logging.LoggerAdapter(
+        logger,
+        {
+            "service": service_name,
+            "request_id": "system",
+            "client_ip": "system"
+        }
+    )

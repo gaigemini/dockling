@@ -1,19 +1,24 @@
-docling-app/
+Struktur File Proyek
+project/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py                 # Application entry point (diperbarui)
 │   ├── middleware.py           # Custom middleware
+│   ├── models/
+│   │   ├── __init__.py
+│   │   └── common.py           # General model use by many
 │   ├── routers/
 │   │   ├── __init__.py
 │   │   └── document.py         # Router untuk endpoints dokumen
+│   ├── repository
+│   │   ├── __init__.py
 │   ├── services/
 │   │   ├── __init__.py
 │   │   ├── base_service.py     # Base service class
 │   │   ├── file_service.py     # Service untuk file handling
 │   │   └── conversion_service.py # Service untuk konversi dokumen
 │   └── auth/
-│       ├── __init__.py
-│       └── utils.py            # Auth utilities
+│   │   ├── __init__.py
 ├── config/
 │   ├── __init__.py             # Public API exports
 │   ├── base.py                 # Base settings
@@ -28,6 +33,758 @@ docling-app/
 │   ├── dev.env                 # Development environment
 │   ├── test.env                # Test environment
 │   └── prod.env.example        # Production template
+├── util/
+│   ├── __init__.py
 ├── .env                        # Environment selector
 ├── requirements.txt
 └── run.sh                      # Startup script
+└── test.rest                   # rest client testing script
+
+
+app/main.py
+from fastapi import FastAPI, Request, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+from contextlib import asynccontextmanager
+import time
+
+from config import settings, root_logger, get_request_logger_dep
+from app.middleware import CorrelationIdMiddleware, LoggerMiddleware
+from app.routers.document import router as document_router
+from app.services.conversion_service import ConversionService
+
+# Global service instance
+conversion_service = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup code
+    root_logger.info(f"🚀 Starting {settings.APP_NAME} in {settings.APP_ENV} mode")
+    root_logger.info(f"Debug mode: {'ENABLED' if settings.DEBUG else 'DISABLED'}")
+    
+    global conversion_service
+    
+    try:
+        # Initialize conversion service
+        conversion_service = ConversionService(root_logger)
+        init_result = await conversion_service.initialize_converter()
+        if not init_result:
+            root_logger.error("Failed to initialize converter on startup")
+        else:
+            root_logger.info("Document converter initialized successfully")
+    except Exception as e:
+        root_logger.error(f"Startup initialization failed: {str(e)}")
+    
+    yield  # App runs here
+    
+    # Shutdown code
+    root_logger.info("Document Processing API shutdown completed")
+
+app = FastAPI(
+    title=settings.APP_NAME,
+    description="Production-ready API for document processing using Docling - Text and Table Extraction",
+    version="2.0.0",
+    docs_url="/docs" if settings.DEBUG else None,
+    redoc_url="/redoc" if settings.DEBUG else None,
+    openapi_url="/openapi.json" if settings.DEBUG else None,
+    lifespan=lifespan
+)
+
+# Register middleware (order matters!)
+app.add_middleware(CorrelationIdMiddleware)
+app.add_middleware(LoggerMiddleware)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include routers
+app.include_router(document_router)
+
+@app.get("/")
+async def root(request: Request, logger = Depends(get_request_logger_dep)):
+    """Root endpoint with logging"""
+    logger.info("Root endpoint accessed")
+    return {
+        "app": settings.APP_NAME,
+        "environment": settings.APP_ENV,
+        "debug": settings.DEBUG,
+        "version": "2.0.0",
+        "status": "running",
+        "focus": "text_and_tables",
+        "request_id": request.headers.get("X-Request-ID")
+    }
+
+@app.get("/health")
+async def health_check(request: Request, logger = Depends(get_request_logger_dep)):
+    """Health check endpoint"""
+    logger.info("Health check called")
+    
+    converter_status = "healthy" if conversion_service and conversion_service.converter else "unhealthy"
+    
+    return {
+        "status": "healthy",
+        "timestamp": time.time(),
+        "converter_status": converter_status,
+        "environment": settings.APP_ENV,
+        "request_id": request.headers.get("X-Request-ID")
+    }
+
+# Error handlers
+@app.exception_handler(500)
+async def internal_server_error_handler(request: Request, exc: Exception):
+    logger = get_request_logger_dep(request)
+    logger.error(f"Internal server error: {exc}", exc_info=True)
+    return Response(
+        content=ErrorResponse(
+            error="Internal server error",
+            details=str(exc.detail) if hasattr(exc, 'detail') else str(exc)
+        ).json(),
+        status_code=500,
+        media_type="application/json"
+    )
+
+@app.exception_handler(400)
+async def bad_request_handler(request: Request, exc: Exception):
+    logger = get_request_logger_dep(request)
+    logger.warning(f"Bad request: {exc}")
+    return Response(
+        content=ErrorResponse(
+            error="Bad request",
+            details=str(exc.detail) if hasattr(exc, 'detail') else str(exc)
+        ).json(),
+        status_code=400,
+        media_type="application/json"
+    )
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=settings.DEBUG)
+
+
+app/middleware.py
+import uuid
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+from config.context import context
+from config import get_request_logger
+
+class CorrelationIdMiddleware(BaseHTTPMiddleware):
+    """Generates and propagates request correlation IDs"""
+    
+    async def dispatch(self, request: Request, call_next):
+        # 1. Get or generate correlation ID
+        request_id = request.headers.get("X-Request-ID") or request.headers.get("X-Correlation-ID")
+        if not request_id:
+            request_id = str(uuid.uuid4())
+        
+        # 2. Set context for this request
+        token = context.set_request_id(request_id)
+        
+        try:
+            # 3. Process request
+            response: Response = await call_next(request)
+            
+            # 4. Add correlation ID to response headers
+            response.headers["X-Request-ID"] = request_id
+            
+            return response
+            
+        finally:
+            # 5. Clean up context
+            context.request_id.reset(token)
+
+class LoggerMiddleware(BaseHTTPMiddleware):
+    """Attaches request-scoped logger to request.state"""
+    
+    async def dispatch(self, request: Request, call_next):
+        # Create request-scoped logger
+        logger = get_request_logger(
+            name=f"route:{request.url.path}",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "client_ip": request.client.host if request.client else "unknown"
+            }
+        )
+        
+        # Add logger to request state
+        request.state.logger = logger
+        
+        # Log request start
+        logger.info(
+            f"Incoming request: {request.method} {request.url.path} "
+            f"from {request.client.host if request.client else 'unknown'}"
+        )
+        
+        try:
+            response = await call_next(request)
+            logger.info(
+                f"Request completed: {request.method} {request.url.path} "
+                f"Status: {response.status_code}"
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Request failed: {str(e)}", exc_info=True)
+            raise
+
+
+app/models/common.py 
+from pydantic import BaseModel, Field
+from typing import Any, Optional, Literal
+from enum import Enum
+
+class ApiResponse(BaseModel):
+    """Representation of API response."""
+    status: int = Field(description="Status of response, 0 is successfully.")
+    message: Optional[str] = Field(
+        default=None, description="Explaination of the error.")
+    data: Optional[Any] = Field(
+        default=None, description="Content of result from API call.")
+
+
+app/services/base_service.py
+import logging
+from abc import ABC
+
+class BaseService(ABC):
+    """
+    Base service class that automatically includes request context in logs
+    """
+    
+    def __init__(self, logger: logging.LoggerAdapter):
+        """
+        Initialize service with request-scoped logger
+        
+        Args:
+            logger: Logger instance from dependency injection
+        """
+        # Create service-specific logger that inherits context
+        service_name = self.__class__.__name__.lower()
+        self.logger = logging.LoggerAdapter(
+            logger.logger.getChild(service_name),
+            logger.extra  # Preserve all context
+        )
+
+
+app/config/__init__.py
+from .loader import settings
+from .logger import get_request_logger, root_logger, setup_root_logger
+from .dependencies import get_current_user, get_request_logger_dep
+from .context import context
+
+__all__ = [
+    "settings",
+    "get_request_logger",
+    "root_logger",
+    "setup_root_logger",
+    "get_current_user",
+    "get_request_logger_dep",
+    "context"
+]
+
+
+app/config/base.py
+from pydantic_settings import BaseSettings
+from typing import List, Optional
+
+class BaseConfig(BaseSettings):
+    APP_NAME: str = "Docling Document Processing API"
+    APP_ENV: str = "dev"
+    DEBUG: bool = False
+    LOG_LEVEL: str = "INFO"
+    
+    # Document processing settings
+    UPLOAD_DIR: str = "uploads"
+    SUPPORTED_FORMATS: str = "application/pdf,text/plain"
+    DEFAULT_OCR_LANGS: str = "id"
+    MAX_TOKENS: int = 512
+    DEFAULT_CHUNK_TYPE: str = "hybrid"
+    
+    # Security
+    SECRET_KEY: str = "default-secret-key-change-in-production"
+    DISABLE_AUTH: bool = False
+    
+    class Config:
+        env_file_encoding = 'utf-8'
+        extra = "allow"
+        
+
+app/config/dev.py
+from .base import BaseConfig
+
+class DevConfig(BaseConfig):
+    DEBUG: bool = True
+    LOG_LEVEL: str = "DEBUG"
+    UPLOAD_DIR: str = "uploads"
+    SUPPORTED_FORMATS: str = "application/pdf,text/plain,text/markdown,text/csv,text/html,application/json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/*,application/xml"
+    DEFAULT_OCR_LANGS: str = "id"
+    MAX_TOKENS: int = 512
+    DEFAULT_CHUNK_TYPE: str = "hybrid"
+    SECRET_KEY: str = "dev-secret-key-for-docling-app"
+    DISABLE_AUTH: bool = True
+
+
+app/config/test.py
+from .base import BaseConfig
+
+class TestConfig(BaseConfig):
+    DEBUG: bool = True
+    LOG_LEVEL: str = "CRITICAL"
+    UPLOAD_DIR: str = "test_uploads"
+    SUPPORTED_FORMATS: str = "application/pdf,text/plain"
+    DEFAULT_OCR_LANGS: str = "id"
+    MAX_TOKENS: int = 512
+    DEFAULT_CHUNK_TYPE: str = "hybrid"
+    SECRET_KEY: str = "test-secret-key"
+    DISABLE_AUTH: bool = True
+
+
+app/config/prod.py
+from .base import BaseConfig
+
+class ProdConfig(BaseConfig):
+    DEBUG: bool = False
+    LOG_LEVEL: str = "WARNING"
+    DISABLE_AUTH: bool = False
+
+
+app/config/loader.py
+import os
+import sys
+from dotenv import load_dotenv
+from .base import BaseConfig
+from .dev import DevConfig
+from .test import TestConfig
+from .prod import ProdConfig
+
+def setup_config():
+    """Setup configuration with proper error handling"""
+    try:
+        # Load ONLY the environment selector
+        load_dotenv(".env", override=False)
+        APP_ENV = os.getenv("APP_ENV", "dev").lower()
+        print(f"🔧 Loading environment: {APP_ENV}", file=sys.stderr)
+
+        # Environment mapping
+        env_configs = {
+            "dev": DevConfig,
+            "test": TestConfig,
+            "prod": ProdConfig
+        }
+
+        # Get config class for current environment
+        ConfigClass = env_configs.get(APP_ENV, DevConfig)
+
+        # Load environment-specific .env file
+        env_file = f"env/{APP_ENV}.env"
+        
+        # Check if env file exists
+        if not os.path.exists(env_file):
+            print(f"⚠️  Environment file {env_file} not found, using defaults", file=sys.stderr)
+            settings_instance = ConfigClass()
+        else:
+            print(f"📁 Loading config from: {env_file}", file=sys.stderr)
+            settings_instance = ConfigClass(_env_file=env_file, _env_file_encoding='utf-8')
+
+        # Critical production safeguard
+        if APP_ENV == "prod" and settings_instance.DEBUG:
+            raise RuntimeError("DEBUG must be disabled in production!")
+            
+        print(f"✅ Configuration loaded successfully for {APP_ENV} environment", file=sys.stderr)
+        return settings_instance
+        
+    except Exception as e:
+        print(f"❌ Failed to load configuration: {e}", file=sys.stderr)
+        # Return default dev config as fallback
+        return DevConfig()
+
+# Initialize settings
+settings = setup_config()
+
+
+app/config/context.py
+import contextvars
+import uuid
+from typing import Optional, Dict, Any
+
+class RequestContext:
+    """Manages request-scoped context variables"""
+    
+    # Context variables - automatically handle async context switching
+    request_id: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="no-request-id")
+    current_user: contextvars.ContextVar[Optional[Dict]] = contextvars.ContextVar("current_user", default=None)
+    
+    @classmethod
+    def set_request_id(cls, request_id: str) -> contextvars.Token:
+        """Set request ID and return token for cleanup"""
+        return cls.request_id.set(request_id)
+    
+    @classmethod
+    def get_request_id(cls) -> str:
+        """Get current request ID"""
+        return cls.request_id.get()
+    
+    @classmethod
+    def set_current_user(cls, user: Optional[Dict]) -> contextvars.Token:
+        """Set current user context"""
+        return cls.current_user.set(user)
+    
+    @classmethod
+    def get_current_user(cls) -> Optional[Dict]:
+        """Get current user from context"""
+        return cls.current_user.get()
+
+# Singleton instance
+context = RequestContext()
+
+
+app/config/logger.py
+import logging
+import json
+import sys
+from typing import Dict, Any, Optional
+from .loader import settings
+from .context import context
+
+class ContextFilter(logging.Filter):
+    """Adds request context to log records"""
+    
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Add request ID to all logs
+        record.request_id = context.get_request_id()
+        
+        # Add user context if available
+        user = context.get_current_user()
+        if user:
+            record.user_id = user.get("id", "unknown")
+            record.username = user.get("username", "unknown")
+        
+        return True
+
+class JSONFormatter(logging.Formatter):
+    """Formats logs as JSON for production"""
+    
+    def format(self, record: logging.LogRecord) -> str:
+        log_data = {
+            "timestamp": self.formatTime(record, self.datefmt),
+            "level": record.levelname,
+            "request_id": getattr(record, "request_id", "no-request-id"),
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "function": record.funcName,
+            "line": record.lineno
+        }
+        
+        # Add user context
+        if hasattr(record, "user_id"):
+            log_data["user_id"] = record.user_id
+        if hasattr(record, "username"):
+            log_data["username"] = record.username
+        
+        # Add exception info
+        if record.exc_info:
+            log_data["exception"] = self.formatException(record.exc_info)
+        
+        return json.dumps(log_data)
+
+def setup_root_logger():
+    """Configure root logger based on environment"""
+    root_logger = logging.getLogger()
+    root_logger.setLevel(settings.LOG_LEVEL)
+    
+    # Clear existing handlers
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    # Create handler
+    handler = logging.StreamHandler(sys.stdout)
+    handler.addFilter(ContextFilter())
+    
+    # Environment-specific formatting
+    if settings.APP_ENV == "prod":
+        handler.setFormatter(JSONFormatter())
+    else:
+        handler.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)-8s] [%(request_id)s] "
+            "%(name)s:%(lineno)d - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        ))
+    
+    root_logger.addHandler(handler)
+    
+    # Suppress noisy libraries
+    if settings.APP_ENV == "prod":
+        logging.getLogger("uvicorn").setLevel("WARNING")
+        logging.getLogger("asyncio").setLevel("WARNING")
+    
+    return root_logger
+
+# Initialize root logger
+root_logger = setup_root_logger()
+
+def get_request_logger(name: str, extra: Optional[Dict[str, Any]] = None):
+    """
+    Get a logger that automatically includes request context
+    """
+    logger = logging.getLogger(f"app.{name}")
+    return logging.LoggerAdapter(logger, extra or {})
+
+    
+app/config/dependencies.py 
+from fastapi import Depends, HTTPException, status, Request
+from fastapi.security import OAuth2PasswordBearer
+from .context import context
+from .loader import settings
+from .logger import get_request_logger
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    request: Request = None
+):
+    """Validates token and sets user context"""
+    # Bypass auth in test environment if configured
+    if settings.DISABLE_AUTH:
+        user = {"id": 999, "username": "docling-user", "is_admin": True}
+        context.set_current_user(user)
+        return user
+    
+    try:
+        # Simple token validation for docling app
+        # In a real app, you would validate against your auth system
+        if token == settings.SECRET_KEY:
+            user = {"id": 100, "username": "authenticated-user", "is_admin": False}
+            context.set_current_user(user)
+            return user
+        else:
+            raise Exception("Invalid token")
+            
+    except Exception as e:
+        logger = get_request_logger("auth")
+        logger.error(f"Auth failed: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials"
+        )
+
+def get_request_logger_dep(request: Request):
+    """Dependency to get request-scoped logger"""
+    if not hasattr(request.state, "logger"):
+        request.state.logger = get_request_logger(
+            name=f"route:{request.url.path}",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "client_ip": request.client.host if request.client else "unknown"
+            }
+        )
+    return request.state.logger
+
+
+app/env/dev.env
+UPLOAD_DIR=uploads
+SUPPORTED_FORMATS=application/pdf,text/plain,text/markdown,text/csv,text/html,application/json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/*,application/xml
+DEFAULT_OCR_LANGS=id
+MAX_TOKENS=512
+DEFAULT_CHUNK_TYPE=hybrid
+LOG_LEVEL=DEBUG
+SECRET_KEY=p1Ho11H3RtWiyTqfdcHSBzxcBdXdedAlb2SknB7SIQs=
+DISABLE_AUTH=true
+
+
+app/env/test.env
+UPLOAD_DIR=test_uploads
+SUPPORTED_FORMATS=application/pdf,text/plain
+DEFAULT_OCR_LANGS=id
+MAX_TOKENS=512
+DEFAULT_CHUNK_TYPE=hybrid
+LOG_LEVEL=CRITICAL
+SECRET_KEY=test-secret-key
+DISABLE_AUTH=true
+
+
+app/env/prod.env.example
+UPLOAD_DIR=uploads
+SUPPORTED_FORMATS=application/pdf,text/plain,text/markdown,text/csv,text/html,application/json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/*,application/xml
+DEFAULT_OCR_LANGS=id,en
+MAX_TOKENS=512
+DEFAULT_CHUNK_TYPE=hybrid
+LOG_LEVEL=WARNING
+SECRET_KEY=p1Ho11H3RtWiyTqfdcHSBzxcBdXdedAlb2SknB7SIQs=
+DISABLE_AUTH=true
+
+
+app/.env
+APP_ENV=dev
+
+
+app/requirements.txt
+fastapi
+python-multipart
+uvicorn
+python-dotenv
+pydantic
+pydantic-settings
+httpx
+pytest
+pytest-asyncio
+aiofiles
+python-magic
+
+
+app/test.rest   
+@clientToken = Bearer eyJ...6jI
+@token = {{clientToken}}
+@server_host=https://docling.gai.co.id/
+@local_host=http://localhost:1877/
+@host={{server_host}}
+
+
+### Get Root
+GET {{host}}
+Accept: application/json
+
+
+### Get Health Check
+GET {{host}}health
+Accept: application/json
+
+
+
+
+class BaseService:
+    """Base service with comprehensive logging and optimized operations"""
+    
+    def __init__(self, table_name: str):
+        self.table_name = table_name
+        self.pool = get_async_pool()
+        self.logger = logging.getLogger(self.__class__.__name__)
+    
+    def _generate_id(self) -> str:
+        """Generate unique ID"""
+        return str(uuid.uuid4().hex)
+    
+    def _log_operation_start(self, operation: str, cu: CurrentUser, **kwargs):
+        """Log operation start with parameters"""
+        log_data = {
+            "operation": operation,
+            "log_id": cu.log_id,
+            "user_id": cu.id,
+            "table": self.table_name,
+            "parameters": kwargs
+        }
+        self.logger.info(f"Starting operation: {log_data}")
+    
+    def _log_operation_success(self, operation: str, cu: CurrentUser, result: Any = None):
+        """Log successful operation"""
+        log_data = {
+            "operation": operation,
+            "log_id": cu.log_id,
+            "user_id": cu.id,
+            "table": self.table_name,
+            "result": "SUCCESS",
+            "data_returned": result is not None
+        }
+        self.logger.info(f"Operation completed: {log_data}")
+    
+    def _log_operation_error(self, operation: str, cu: CurrentUser, error: Exception):
+        """Log operation error"""
+        log_data = {
+            "operation": operation,
+            "log_id": cu.log_id,
+            "user_id": cu.id,
+            "table": self.table_name,
+            "result": "ERROR",
+            "error_type": type(error).__name__,
+            "error_message": str(error)
+        }
+        self.logger.error(f"Operation failed: {log_data}", exc_info=True)
+    
+    async def _execute_returning(self, query: str, params: tuple, cu: CurrentUser, 
+                               operation: str, model_class: Type[BaseModel] = None) -> ApiResponse:
+        """Execute query with RETURNING clause and comprehensive logging"""
+        self._log_operation_start(operation, cu, query=query, params=params)
+        
+        try:
+            async with self.pool.connection() as conn:
+                async with conn.cursor(row_factory=dict_row) as cur:
+                    await cur.execute(query, params)
+                    result = await cur.fetchone()
+                    await conn.commit()
+                    
+                    if result:
+                        if model_class:
+                            data = model_class(**dict(result))
+                        else:
+                            data = dict(result)
+                        
+                        self._log_operation_success(operation, cu, data)
+                        return ApiResponse(status=0, data=data)
+                    else:
+                        self._log_operation_error(operation, cu, Exception("No data returned"))
+                        return ApiResponse(status=1, message="No data found")
+                        
+        except Exception as e:
+            self._log_operation_error(operation, cu, e)
+            return ApiResponse(status=1, message=str(e))
+    
+    async def _execute_query(self, query: str, params: tuple, cu: CurrentUser, 
+                           operation: str) -> ApiResponse:
+        """Execute SELECT query with logging"""
+        self._log_operation_start(operation, cu, query=query, params=params)
+        
+        try:
+            async with self.pool.connection() as conn:
+                async with conn.cursor(row_factory=dict_row) as cur:
+                    await cur.execute(query, params)
+                    results = await cur.fetchall()
+                    
+                    self._log_operation_success(operation, cu, f"Found {len(results)} records")
+                    return ApiResponse(status=0, data=results, total=len(results))
+        except Exception as e:
+            self._log_operation_error(operation, cu, e)
+            return ApiResponse(status=1, message=str(e))
+
+content	Data hasil query
+page_number	Halaman ke- (0-based)
+page_size	Jumlah data per halaman
+total_pages	Total halaman
+total_elements	Total semua data
+number_of_elements	Jumlah data di halaman ini
+
+CREATE TABLE public.sample (
+	id varchar(32) NOT NULL,
+	fname varchar NULL,
+	note text NULL,
+	int2s int2 DEFAULT 1 NOT NULL,
+	ints int4 DEFAULT 1 NOT NULL,
+	int8s int8 DEFAULT 1 NOT NULL,
+	bigints int8 DEFAULT 1 NOT NULL,
+	float8s float8 DEFAULT 0.0 NOT NULL,
+	bools bool DEFAULT true NOT NULL,
+    keywords text[],
+	metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+	embedding public.vector NULL,
+	status varchar(10) DEFAULT 'ACTIVE'::character varying NOT NULL,
+	dates date NULL,
+	times time NULL,
+	timestamps timestamp NULL,
+	rec_by varchar(32) NOT NULL,
+	rec_date timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	mod_by varchar(32) NULL,
+	mod_date timestamptz NULL,
+	CONSTRAINT test_pk PRIMARY KEY (id)
+);
+
+
+
+

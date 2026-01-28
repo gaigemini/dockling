@@ -1,8 +1,8 @@
-@clientToken = Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZW1weSIsImlkIjoiMDFKUlc0U0hFRFEzTlRITlAwWkRKNktXMzIiLCJyb2xlIjpbIkFETUlOIl0sImF1dGgiOiJDTElFTlQiLCJjb2RlIjoidG1wIiwiZXhwIjoxNzUxNDMwNjA3fQ.bFAZZgfvSqHsybFTjhKqGLAqmNkyrQvtyF4d2ChD6jI
+@clientToken = Bearer p1Ho11H3RtWiyTqfdcHSBzxcBdXdedAlb2SknB7SIQs=
 @token = {{clientToken}}
 @server_host=https://docling.gai.co.id/
 @local_host=http://localhost:1877/
-@host={{server_host}}
+@host={{local_host}}
 
 
 ### Get Root
