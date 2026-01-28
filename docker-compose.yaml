@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  docling-api:
+    image: registry.gai.co.id/gai/docling_api:latest
+    container_name: docling-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    expose:
+      - "8000"
+    environment:
+      - APP_ENV=prod
+      - DOCLING_ENV=prod
+    env_file:
+      - .env
+    volumes:
+      - ./uploads:/app/uploads
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./env:/app/env
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - docling-network
+
+networks:
+  docling-network:
+    external: true
+    name: dbr0

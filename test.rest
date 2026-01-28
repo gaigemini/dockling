@@ -5,6 +5,12 @@
 @host={{local_host}}
 
 
+@prod_url = https://docling.gai.co.id
+@dev_url = {{url}}
+
+@url = {{prod_url}}
+
+
 ### Get Root
 GET {{host}}
 Accept: application/json
