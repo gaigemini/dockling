@@ -71,3 +71,35 @@ Content-Disposition: form-data; name="chunk_type"
 
 recursive_text
 --Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z--
+
+
+### POST Convert and Chunk Document with OCR enabled
+POST {{host}}api/v1/convert_n_chunk
+authorization: {{token}}
+Content-Type: multipart/form-data; boundary=Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="file"; filename="KUHP SCANNED.pdf"
+
+< /home/skyfy/Downloads/KUHP SCANNED.pdf
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="enable_ocr"
+
+true
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="ocr_langs"
+
+id
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="max_tokens"
+
+1024
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="output_type"
+
+json
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="chunk_type"
+
+recursive_text
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z--

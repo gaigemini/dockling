@@ -267,16 +267,20 @@ class ConversionService(BaseService):
         })
         
         start_time = time.time()
-        
-        # Convert document
-        conversion_result = await self.convert(file_path, output_type)
 
-        if conversion_result.status != 0:
+        conversion_result = await asyncio.get_event_loop().run_in_executor(
+                self._executor,
+                self._convert_document_sync,
+                file_path,
+                output_type
+            )
+
+        if not conversion_result["success"]:
             return conversion_result
 
         # Chunk document
         chunk_result = await self.chunk(
-            conversion_result.data["document"], 
+            conversion_result["document"], 
             max_tokens, 
             chunk_type
         )
@@ -303,8 +307,8 @@ class ConversionService(BaseService):
             message="Document converted and chunked successfully",
             data={
                 "conversion": {
-                    "content": conversion_result.data["content"],
-                    "metadata": conversion_result.data["metadata"]
+                    "content": conversion_result["content"],
+                    "metadata": conversion_result["metadata"]
                 },
                 "chunks": chunk_result.data["chunks"],
                 "total_chunks": chunk_result.data["total_chunks"],
