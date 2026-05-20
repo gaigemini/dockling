@@ -1,0 +1,41 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*.egg-info
+*.egg
+.venv
+venv
+bin/
+lib/
+include/
+lib64/
+pyvenv.cfg
+
+# Environment
+.env
+env/*.env
+!env/prod.env.example
+
+# Runtime data
+uploads/
+data/
+output/
+logs/
+
+# IDE & tools
+.vscode/
+.idea/
+.qoder/
+*.swp
+*.swo
+*~
+note.txt
+test.rest
+
+# OS files
+.DS_Store
+Thumbs.db

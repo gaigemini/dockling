@@ -1,39 +1,65 @@
 import uuid
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
 from config.context import context
 from config import get_request_logger
 
-class CorrelationIdMiddleware(BaseHTTPMiddleware):
-    """Generates and propagates request correlation IDs"""
-    
-    async def dispatch(self, request: Request, call_next):
-        # 1. Get or generate correlation ID
-        request_id = request.headers.get("X-Request-ID") or request.headers.get("X-Correlation-ID")
-        if not request_id:
-            request_id = str(uuid.uuid4())
-        
+
+class CorrelationIdMiddleware:
+    """Pure ASGI middleware - faster than BaseHTTPMiddleware.
+    Generates and propagates request correlation IDs.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # 1. Get or generate correlation ID from headers
+        headers = dict(scope.get("headers", []))
+        request_id = (
+            headers.get(b"x-request-id")
+            or headers.get(b"x-correlation-id")
+            or str(uuid.uuid4()).encode()
+        )
+
         # 2. Set context for this request
-        token = context.set_request_id(request_id)
-        
+        token = context.set_request_id(request_id.decode("utf-8"))
+        scope["request_id"] = request_id
+
+        # 3. Wrap send to inject correlation ID into response headers
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                response_headers = list(message.get("headers", []))
+                response_headers.append((b"X-Request-ID", request_id))
+                message["headers"] = response_headers
+            await send(message)
+
         try:
-            # 3. Process request
-            response: Response = await call_next(request)
-            
-            # 4. Add correlation ID to response headers
-            response.headers["X-Request-ID"] = request_id
-            
-            return response
-            
+            await self.app(scope, receive, send_wrapper)
         finally:
-            # 5. Clean up context
+            # 4. Clean up context
             context.request_id.reset(token)
 
-class LoggerMiddleware(BaseHTTPMiddleware):
-    """Attaches request-scoped logger to request.state"""
-    
-    async def dispatch(self, request: Request, call_next):
+
+class LoggerMiddleware:
+    """Pure ASGI middleware - faster than BaseHTTPMiddleware.
+    Attaches request-scoped logger and logs requests.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Reconstruct Request from scope for URL and client info
+        request = Request(scope=scope)
+
         # Create request-scoped logger
         logger = get_request_logger(
             name=f"route:{request.url.path}",
@@ -43,23 +69,31 @@ class LoggerMiddleware(BaseHTTPMiddleware):
                 "client_ip": request.client.host if request.client else "unknown"
             }
         )
-        
-        # Add logger to request state
-        request.state.logger = logger
-        
+
+        # Store logger in scope so downstream can access via request.state
+        scope["logger"] = logger
+        scope["state"] = {"logger": logger}
+
         # Log request start
         logger.info(
             f"Incoming request: {request.method} {request.url.path} "
             f"from {request.client.host if request.client else 'unknown'}"
         )
-        
+
+        status_code = 200
+
+        async def send_wrapper(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message.get("status", 200)
+            await send(message)
+
         try:
-            response = await call_next(request)
+            await self.app(scope, receive, send_wrapper)
             logger.info(
                 f"Request completed: {request.method} {request.url.path} "
-                f"Status: {response.status_code}"
+                f"Status: {status_code}"
             )
-            return response
         except Exception as e:
             logger.error(f"Request failed: {str(e)}", exc_info=True)
             raise

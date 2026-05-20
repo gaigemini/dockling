@@ -21,7 +21,12 @@ GET {{host}}health
 Accept: application/json
 
 
-### POST Convert Document with OCR disabled (Default) /home/skyfy/Downloads/UUD1945.pdf /home/skyfy/Downloads/UU Nomor 1 Tahun 2023.pdf
+# =============================================================================
+# CONVERSION ENDPOINTS (with streaming / file-based auto-selection)
+# =============================================================================
+
+
+### POST Convert - Auto stream (file <= 50MB MAX_STREAM_SIZE)
 POST {{host}}api/v1/convert
 authorization: {{token}}
 Content-Type: multipart/form-data; boundary=_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
@@ -41,7 +46,55 @@ markdown
 --_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z--
 
 
-### POST Convert and Chunk Document with OCR enabled
+### POST Convert - Force file-based (use_stream=false)
+POST {{host}}api/v1/convert
+authorization: {{token}}
+Content-Type: multipart/form-data; boundary=_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="file"; filename="UUD1945.pdf"
+
+< /home/skyfy/Downloads/UUD1945.pdf
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="use_stream"
+
+false
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="enable_ocr"
+
+false
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="output_type"
+
+markdown
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z--
+
+
+### POST Convert - Force streaming (use_stream=true)
+POST {{host}}api/v1/convert
+authorization: {{token}}
+Content-Type: multipart/form-data; boundary=_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="file"; filename="UUD1945.pdf"
+
+< /home/skyfy/Downloads/UUD1945.pdf
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="use_stream"
+
+true
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="enable_ocr"
+
+false
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="output_type"
+
+markdown
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z--
+
+
+### POST Convert and Chunk - Auto stream
 POST {{host}}api/v1/convert_n_chunk
 authorization: {{token}}
 Content-Type: multipart/form-data; boundary=Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
@@ -65,9 +118,108 @@ Content-Disposition: form-data; name="max_tokens"
 --Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
 Content-Disposition: form-data; name="output_type"
 
-json
+markdown
 --Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
 Content-Disposition: form-data; name="chunk_type"
 
-recursive_text
+hybrid
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z--
+
+# =============================================================================
+# RESUMABLE UPLOAD FLOW
+# =============================================================================
+# Step 1: Initiate upload session → get upload_id
+# Step 2: Send chunk(s) via PUT /upload/{upload_id}
+#         (use Content-Range if resuming from a specific offset)
+# Step 3: Check upload status via GET /upload/{upload_id}
+# Step 4: Use upload_id in /convert or /convert_n_chunk
+# =============================================================================
+
+
+### [Step 1] Upload Init - Start resumable upload session
+POST {{host}}api/v1/upload/init
+authorization: {{token}}
+Content-Type: multipart/form-data; boundary=Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="filename"
+
+UUD1945.pdf
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="total_size"
+
+1000000
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z--
+# ↑ Replace total_size with actual file byte size
+# Response includes upload_id → use it in subsequent requests
+
+
+### [Step 2] Upload Chunk - Send (or resume) a file chunk
+# Replace {upload_id} with the upload_id from Step 1
+# Add Content-Range header when resuming from a specific offset
+PUT {{host}}api/v1/upload/REPLACE_WITH_UPLOAD_ID
+authorization: {{token}}
+Content-Type: application/octet-stream
+Content-Range: bytes 0-999999/1000000
+
+< /home/skyfy/Downloads/UUD1945.pdf
+# Remove Content-Range header for simple sequential uploads
+# Content-Range format: bytes {start}-{end}/{total}
+
+
+### [Step 3] Upload Status - Check upload progress
+GET {{host}}api/v1/upload/REPLACE_WITH_UPLOAD_ID
+authorization: {{token}}
+Accept: application/json
+
+
+### [Step 4a] Convert with upload_id - Process an already-uploaded file
+POST {{host}}api/v1/convert
+authorization: {{token}}
+Content-Type: multipart/form-data; boundary=_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="upload_id"
+
+REPLACE_WITH_UPLOAD_ID
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="enable_ocr"
+
+false
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="output_type"
+
+markdown
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z--
+
+
+### [Step 4b] Convert and Chunk with upload_id
+POST {{host}}api/v1/convert_n_chunk
+authorization: {{token}}
+Content-Type: multipart/form-data; boundary=Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="upload_id"
+
+REPLACE_WITH_UPLOAD_ID
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="enable_ocr"
+
+true
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="ocr_langs"
+
+id
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="max_tokens"
+
+1024
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="output_type"
+
+markdown
+--Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="chunk_type"
+
+hybrid
 --Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z--
