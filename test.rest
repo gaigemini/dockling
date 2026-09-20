@@ -1,4 +1,4 @@
-@clientToken = Bearer p1Ho11H3RtWiyTqfdcHSBzxcBdXdedAlb2SknB7SIQs=
+@clientToken = Bearer REPLACE_WITH_YOUR_TOKEN
 @token = {{clientToken}}
 @server_host=https://docling.gai.co.id/
 @local_host=http://localhost:1877/
@@ -223,3 +223,68 @@ Content-Disposition: form-data; name="chunk_type"
 
 hybrid
 --Ck3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z--
+
+
+# =============================================================================
+# ASYNC TASK FLOW (minio storage + 7-day result TTL + webhook callback)
+# =============================================================================
+# Step 1: Submit task (optional callback_url + timeout_seconds)
+# Step 2: Poll status until a terminal status
+#         (completed / failed / cancelled / expired / timeout)
+# Step 3: Fetch the result via /tasks/{task_id}/result
+# Step 4: (Optional) Cancel a pending task via DELETE /tasks/{task_id}
+# =============================================================================
+
+
+### [Async Step 1] Convert Async - submit (with callback_url)
+POST {{host}}api/v1/convert_async
+authorization: {{token}}
+Content-Type: multipart/form-data; boundary=_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="file"; filename="UUD1945.pdf"
+
+< /home/skyfy/Downloads/UUD1945.pdf
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="enable_ocr"
+
+false
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="output_type"
+
+markdown
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="callback_url"
+
+https://your-app.example.com/webhook
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z
+Content-Disposition: form-data; name="timeout_seconds"
+
+5400
+--_k3m6e-jha83GLt1mB0L2oZpP8kqTDn3AyE7z--
+# Response 202: { task_id, poll_url, result_url, callback_url }
+
+
+### [Async Step 2] Poll task status
+GET {{host}}api/v1/tasks/REPLACE_WITH_TASK_ID
+authorization: {{token}}
+Accept: application/json
+# Repeat until status is one of: completed | failed | cancelled | expired | timeout
+
+
+### [Async Step 3] Fetch completed result artifact (7-day retention)
+GET {{host}}api/v1/tasks/REPLACE_WITH_TASK_ID/result
+authorization: {{token}}
+Accept: application/json
+
+
+### [Async Step 4] Cancel a pending task
+DELETE {{host}}api/v1/tasks/REPLACE_WITH_TASK_ID
+authorization: {{token}}
+Accept: application/json
+
+
+### [Async] List recent tasks
+GET {{host}}api/v1/tasks?limit=10&offset=0
+authorization: {{token}}
+Accept: application/json

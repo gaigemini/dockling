@@ -142,6 +142,10 @@ ENV/
 env.bak/
 venv.bak/
 
+# Environment-specific secrets - commit only the .example templates
+env/*.env
+!env/*.env.example
+
 # Spyder project settings
 .spyderproject
 .spyproject

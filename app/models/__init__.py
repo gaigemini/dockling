@@ -9,7 +9,6 @@ from .common import (
     ProcessStatusModel,
 )
 from .document_model import ChunkType, OutputType, ProcessingRequestModel, ProcessingResponseModel
-from .error_model import ErrorResponseModel
 from .sso_model import SsoIntrospectResponseModel, SsoTokenResponseModel, SsoUserInfoModel
 
 __all__ = [
@@ -29,8 +28,6 @@ __all__ = [
     "ChunkType",
     "ProcessingRequestModel",
     "ProcessingResponseModel",
-    # Error
-    "ErrorResponseModel",
     # SSO
     "SsoTokenResponseModel",
     "SsoUserInfoModel",

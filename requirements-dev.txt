@@ -1,0 +1,4 @@
+# Development-only dependencies (not shipped in the production image)
+-r requirements.txt
+pytest==9.0.1
+pytest-asyncio==1.3.0

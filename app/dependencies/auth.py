@@ -9,15 +9,55 @@ This application acts as a Resource Server (Resource Provider):
 
 from typing import Optional
 
+import hashlib
+
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
 from app.auth.sso_service import sso_service
 from app.models.common import CurrentUserModel
+from app.models.sso_model import SsoIntrospectResponseModel
+from app.utils.redis_client import get_redis
 from config import get_request_logger, settings
 from config.context import context
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
+
+
+async def _introspect_with_cache(token: str) -> SsoIntrospectResponseModel:
+    """Introspect a token, caching the result briefly to avoid an SSO
+    round-trip on every API call. Falls back to a direct introspection call
+    when Redis is unavailable.
+    """
+    try:
+        redis = get_redis()
+    except RuntimeError:
+        return await sso_service.introspect_token(token)
+
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    cache_key = f"auth:introspect:{digest}"
+
+    try:
+        cached = await redis.get(cache_key)
+    except Exception:
+        cached = None
+
+    if cached:
+        return SsoIntrospectResponseModel.model_validate_json(cached)
+
+    introspect = await sso_service.introspect_token(token)
+
+    # Only cache successful validations (never cache failures)
+    if introspect.active:
+        try:
+            await redis.set(
+                cache_key,
+                introspect.model_dump_json(),
+                ex=settings.AUTH_INTROSPECT_CACHE_TTL,
+            )
+        except Exception:
+            pass
+    return introspect
 
 
 async def get_current_user(
@@ -70,9 +110,9 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # --- Step 3: Introspect token against SSO ---
+    # --- Step 3: Introspect token against SSO (short-lived Redis cache) ---
     try:
-        introspect = await sso_service.introspect_token(token)
+        introspect = await _introspect_with_cache(token)
     except Exception as e:
         logger.error(f"Token introspection call failed: {e}")
         raise HTTPException(
